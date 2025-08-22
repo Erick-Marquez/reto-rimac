@@ -1,0 +1,123 @@
+openapi: 3.0.0
+info:
+  title: API de Citas
+  version: 1.0.0
+  description: API para gestionar citas
+
+paths:
+  /dev/appointment:
+    post:
+      summary: Crear cita
+      description: Crea una nueva cita en el sistema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppointmentRequest'
+      responses:
+        '201':
+          description: Cita creada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAppointmentResponse'
+        '400':
+          description: Datos inválidos
+        '500':
+          description: Error interno
+
+  /dev/appointment/{id}:
+    get:
+      summary: Obtener cita por ID
+      description: Devuelve la información de una cita específica
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de la cita
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cita encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAppointmentResponse'
+        '404':
+          description: Cita no encontrada
+        '500':
+          description: Error interno
+
+components:
+  schemas:
+    CreateAppointmentRequest:
+      type: object
+      required:
+        - insuredId
+        - scheduleId
+        - countryISO
+      properties:
+        insuredId:
+          type: string
+          pattern: '^\d{5}$'
+          example: "01234"
+          description: Código del asegurado de 5 dígitos (puede tener ceros por delante)
+        scheduleId:
+          type: integer
+          minimum: 1
+          example: 100
+          description: Identificador del espacio para agendar la cita
+        countryISO:
+          type: string
+          enum: [CL, PE]
+          example: "CL"
+          description: Código ISO del país (CHILE = CL, PERU = PE)
+
+    CreateAppointmentResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Cita creada correctamente"
+        appointment:
+          $ref: '#/components/schemas/Appointment'
+
+    GetAppointmentResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Appointment retrieved successfully"
+        appointment:
+          $ref: '#/components/schemas/Appointment'
+
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "abc123"
+        insuredId:
+          type: string
+          example: "01234"
+        scheduleId:
+          type: integer
+          example: 100
+        countryISO:
+          type: string
+          example: "CL"
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled]
+          example: "pending"
+          description: Estado actual de la cita
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-08-22T15:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-08-22T15:30:00Z"

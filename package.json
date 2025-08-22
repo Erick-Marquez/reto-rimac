@@ -1,0 +1,47 @@
+{
+  "name": "serverless-hello-world",
+  "version": "1.0.0",
+  "description": "A simple serverless Hello World project",
+  "main": "dist/http-event-handler.js",
+  "scripts": {
+    "build": "esbuild src/appointments/infrastructure/bootstrap/*.ts --bundle --platform=node --target=node20 --outdir=dist --sourcemap",
+    "clean": "rm -rf dist/",
+    "start": "npm run build && serverless offline start",
+    "dev": "npm run build && serverless offline start --watch",
+    "invoke": "npm run build && serverless invoke local -f appointment",
+    "deploy": "npm run build && serverless deploy",
+    "test": "jest",
+    "remove": "serverless remove",
+    "logs": "serverless logs -f appointment",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "serverless",
+    "aws",
+    "lambda",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
+    "esbuild": "^0.19.0",
+    "jest": "^30.0.5",
+    "serverless": "^3.38.0",
+    "serverless-esbuild": "^1.50.0",
+    "serverless-offline": "^13.3.0",
+    "ts-jest": "^29.4.1",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.450.0",
+    "@aws-sdk/client-eventbridge": "^3.450.0",
+    "@aws-sdk/client-sns": "^3.450.0",
+    "@aws-sdk/lib-dynamodb": "^3.450.0",
+    "joi": "^17.11.0",
+    "uuid": "^9.0.0"
+  }
+}

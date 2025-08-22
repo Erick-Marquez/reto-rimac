@@ -1,0 +1,304 @@
+service: assesment-api
+
+frameworkVersion: '3'
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+custom:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    exclude: ['aws-sdk']
+    target: 'node20'
+    platform: 'node'
+    concurrency: 10
+    external:
+      - '@aws-sdk/*'
+  serverless-offline:
+    httpPort: 3000
+    lambdaPort: 3002
+    noPrependStageInUrl: true
+
+package:
+  include:
+    - src/appointments/infrastructure/swagger/swagger.yaml
+    
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    LOG_LEVEL: ${self:provider.stage, 'INFO'}
+    APPOINTMENTS_TABLE: ${self:service}-appointments-${self:provider.stage}
+    CL_APPOINTMENTS_TABLE: ${self:service}-cl-appointments-${self:provider.stage}
+    PE_APPOINTMENTS_TABLE: ${self:service}-pe-appointments-${self:provider.stage}
+    CL_TOPIC_ARN: !Ref CLTopic
+    PE_TOPIC_ARN: !Ref PETopic
+  deploymentBucket:
+    name: ${self:service}-${self:provider.stage}-bucket
+  role: arn:aws:iam::180294182138:role/ue2devlambaassesmenterick
+
+functions:
+
+  swagger:
+    handler: src/appointments/infrastructure/bootstrap/swagger-handler.swaggerHandler
+    events:
+      - http:
+          path: docs
+          method: get
+
+  appointment:
+    handler: src/appointments/infrastructure/bootstrap/http-event-handler.createAppointment
+    events:
+      - http:
+          path: appointment
+          method: post
+
+  getAppointment:
+    handler: src/appointments/infrastructure/bootstrap/http-event-handler.getAppointmentById
+    events:
+      - http:
+          path: appointment/{id}
+          method: get
+          cors: true
+
+  clEventHandler:
+    handler: src/appointments/infrastructure/bootstrap/cl-event-handler.handleEvent
+    events:
+      - sqs:
+          arn: !GetAtt CLQueue.Arn
+          batchSize: 1
+    memorySize: 256
+    timeout: 30
+
+  peEventHandler:
+    handler: src/appointments/infrastructure/bootstrap/pe-event-handler.handleEvent
+    events:
+      - sqs:
+          arn: !GetAtt PEQueue.Arn
+          batchSize: 1
+    memorySize: 256
+    timeout: 30
+
+  statusUpdateHandler:
+    handler: src/appointments/infrastructure/bootstrap/status-update-handler.handleStatusUpdate
+    events:
+      - sqs:
+          arn: !GetAtt StatusUpdateQueue.Arn
+          batchSize: 1
+    memorySize: 256
+    timeout: 30
+
+resources:
+  Resources:
+    AppointmentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.APPOINTMENTS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: insuredId
+            AttributeType: S
+          - AttributeName: scheduleId
+            AttributeType: N
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: InsuredIdIndex
+            KeySchema:
+              - AttributeName: insuredId
+                KeyType: HASH
+              - AttributeName: scheduleId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+    PEAppointmentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.PE_APPOINTMENTS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: insuredId
+            AttributeType: S
+          - AttributeName: scheduleId
+            AttributeType: N
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: InsuredIdIndex
+            KeySchema:
+              - AttributeName: insuredId
+                KeyType: HASH
+              - AttributeName: scheduleId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+    CLAppointmentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.CL_APPOINTMENTS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: insuredId
+            AttributeType: S
+          - AttributeName: scheduleId
+            AttributeType: N
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: InsuredIdIndex
+            KeySchema:
+              - AttributeName: insuredId
+                KeyType: HASH
+              - AttributeName: scheduleId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+    # SNS Topics
+    CLTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-cl-topic-${self:provider.stage}
+        DisplayName: Chile Appointment Events
+
+    PETopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-pe-topic-${self:provider.stage}
+        DisplayName: Peru Appointment Events
+
+    # SQS Queues
+    CLQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-cl-queue-${self:provider.stage}
+        VisibilityTimeout: 30
+        MessageRetentionPeriod: 1209600
+
+    PEQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-pe-queue-${self:provider.stage}
+        VisibilityTimeout: 30
+        MessageRetentionPeriod: 1209600
+
+    StatusUpdateQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-status-update-queue-${self:provider.stage}
+        VisibilityTimeout: 30
+        MessageRetentionPeriod: 1209600
+
+    # EventBridge Rule
+    AppointmentStatusUpdateRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-appointment-status-update-${self:provider.stage}
+        Description: Rule to trigger appointment status updates
+        #ScheduleExpression: rate(1 minute)
+        EventPattern:
+          source:
+            - "assesment-api.statusUpdate"
+          detail-type:
+            - "Appointment Status Update"
+        State: ENABLED
+        Targets:
+          - Arn: !GetAtt StatusUpdateQueue.Arn
+            Id: StatusUpdateTarget
+
+    # EventBridge Permission
+    EventBridgePermission:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-eventbridge-permission-${self:provider.stage}
+        EventBusName: default
+        EventPattern:
+          source:
+            - "aws.events"
+          detail-type:
+            - "Appointment Status Update"
+
+    # SNS Subscriptions
+    CLSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref CLTopic
+        Protocol: sqs
+        Endpoint: !GetAtt CLQueue.Arn
+
+    PESubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref PETopic
+        Protocol: sqs
+        Endpoint: !GetAtt PEQueue.Arn
+
+    # SQS Queue Policies for SNS
+    CLQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref CLQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt CLQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !Ref CLTopic
+
+    PEQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref PEQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt PEQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !Ref PETopic
+
+    # SQS Queue Policy for EventBridge
+    StatusUpdateQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref StatusUpdateQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: events.amazonaws.com
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt StatusUpdateQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !GetAtt AppointmentStatusUpdateRule.Arn 
